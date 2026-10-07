@@ -1,0 +1,21 @@
+{
+  "repo_pallets_itsdangerous": {
+    "repo": "pallets/itsdangerous",
+    "url": "https://github.com/pallets/itsdangerous",
+    "collection": "repo_pallets_itsdangerous",
+    "files_indexed": 31,
+    "files_skipped": 8,
+    "chunks": 154,
+    "languages": [
+      "make",
+      "markdown",
+      "python",
+      "rst",
+      "text",
+      "toml",
+      "yaml"
+    ],
+    "truncated": false,
+    "indexed_at": "2026-10-03T15:31:43+00:00"
+  }
+}

@@ -1,0 +1,16 @@
+/* Mercury theme for the login, sign-up, admin pages and header.
+   Colours taken from the original Mercury UI. */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+.mercury {
+  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The navy band behind the top of every page */
+.mercury-band {
+  background: linear-gradient(115deg, #0d1533 0%, #10194a 35%, #17295f 60%, #214a9a 100%);
+}
+
+.mercury-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
