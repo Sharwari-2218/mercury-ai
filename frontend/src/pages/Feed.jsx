@@ -4,7 +4,7 @@ import Segmented from '../components/Segmented';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
 import { api } from '../lib/api';
 import { loadJSON, saveJSON, timeAgo } from '../lib/format';
-import { useUser } from '../lib/user';
+import { useAuth } from '../AuthContext';
 
 const VOTES_KEY = 'mercury.votes';
 const tagChip = 'rounded-full bg-chip px-2.5 py-0.5 font-mono text-xs text-body';
@@ -25,7 +25,7 @@ function normalizePost(p) {
 }
 
 export default function Feed() {
-  const { user } = useUser();
+  const { user } = useAuth();
   const [sort, setSort] = useState('trending');
   const [posts, setPosts] = useState(null);
   const [error, setError] = useState('');

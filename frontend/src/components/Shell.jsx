@@ -1,11 +1,9 @@
-import Navbar from './Navbar';
-
-// Page frame: blue ombre header (navbar + page intro), then content that overlaps it by 64px.
+// Page frame: blue ombre page intro, then content that overlaps it by 64px.
+// The site navigation comes from AppHeader (App.jsx), so it isn't repeated here.
 export default function Shell({ eyebrow, title, description, headerExtra, headerAside, children }) {
   return (
     <div className="min-h-screen bg-paper">
       <header className="bg-ombre text-[#F4F1EA]">
-        <Navbar />
         <div className="border-t border-white/10">
           <div className="mx-auto flex max-w-[1240px] flex-wrap items-end justify-between gap-5 px-6 pb-26 pt-10">
             <div className="flex flex-col gap-4">

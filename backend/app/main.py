@@ -1,4 +1,4 @@
-"""Example main.py. Merge the marked parts into your existing one."""
+"""Mercury AI FastAPI app."""
 import os
 
 from dotenv import load_dotenv
@@ -9,7 +9,9 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .database import Base, engine  # noqa: E402
-from .routes import auth_routes, databloom, example_protected  # noqa: E402
+from .routes import (  # noqa: E402
+    ask, auth_routes, contribute, databloom, docsense, gittalk, sharebase,
+)
 
 Base.metadata.create_all(engine)
 
@@ -32,8 +34,12 @@ app.add_middleware(
 )
 
 app.include_router(auth_routes.router)
-app.include_router(databloom.router)  # /databloom/files, /databloom/chunks, POST /databloom
-app.include_router(example_protected.router)  # replace with your real routers
+app.include_router(ask.router)          # POST /ask ("All" mode)
+app.include_router(gittalk.router)      # /gittalk/index, /gittalk/ask, /gittalk/repos
+app.include_router(docsense.router)     # /docsense/upload, /docsense/ask, /docsense/files
+app.include_router(sharebase.router)    # /sharebase/add, /sharebase/ask, /sharebase/pages
+app.include_router(databloom.router)    # /databloom/files, /databloom/chunks, POST /databloom
+app.include_router(contribute.router)   # /contribute, /contribute/status/{id}, /contribute/jobs
 
 
 @app.get("/health")

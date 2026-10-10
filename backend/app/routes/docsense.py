@@ -1,4 +1,4 @@
-"""Docsense (upload + ask one document) and Databloom (chunk summaries)."""
+"""Docsense: upload a document and ask questions about it. (Databloom lives in databloom.py.)"""
 import shutil
 import uuid
 from pathlib import Path
@@ -7,7 +7,8 @@ from typing import Literal
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.rag import answer_question, ingest_file, list_chunks, summarize_chunk
+from app.rag import answer_question, ingest_file
+from app.rag.ingest import load_chunks
 from app.rag.config import DEFAULT_COLLECTION, UPLOAD_DIR
 
 router = APIRouter(tags=["docsense"])
@@ -51,7 +52,8 @@ async def upload(
 
 class AskRequest(BaseModel):
     question: str
-    doc_id: str | None = None      # restrict to one document
+    doc_id: str | None = None      # restrict to one document by id
+    file: str | None = None        # ...or by file name (what the Ask page sends)
     department: str | None = None
     detail: Literal["auto", "short", "detailed"] = "auto"
 
@@ -61,26 +63,19 @@ def ask(req: AskRequest):
     where = {"type": "doc"}
     if req.doc_id:
         where["doc_id"] = req.doc_id
+    elif req.file:
+        where["source"] = req.file
     if req.department:
         where["department"] = req.department
     return answer_question(req.question, DEFAULT_COLLECTION, where, detail=req.detail)
 
 
-# ---------- Databloom ----------
-
-@router.get("/databloom/{doc_id}/chunks", tags=["databloom"])
-def chunks(doc_id: str):
-    return list_chunks(DEFAULT_COLLECTION, {"doc_id": doc_id})
-
-
-class SummarizeRequest(BaseModel):
-    chunk_id: str
-    collection: str = DEFAULT_COLLECTION
-
-
-@router.post("/databloom", tags=["databloom"])
-def databloom(req: SummarizeRequest):
-    try:
-        return summarize_chunk(req.collection, req.chunk_id)
-    except KeyError:
-        raise HTTPException(404, "Chunk not found")
+@router.get("/docsense/files")
+def files():
+    """Uploaded documents, newest first, for the Ask page's document picker."""
+    seen: dict[str, dict] = {}
+    for c in load_chunks(DEFAULT_COLLECTION):
+        m = c["metadata"]
+        if m.get("type") == "doc" and m.get("source"):
+            seen[m["source"]] = {"file": m["source"], "name": m["source"], "doc_id": m.get("doc_id")}
+    return list(reversed(seen.values()))

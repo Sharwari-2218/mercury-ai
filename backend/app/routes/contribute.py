@@ -14,11 +14,14 @@ from app.database import SessionLocal        # where SessionLocal is created
 from app.auth import get_current_user        # the same dependency /auth/me uses
 # ---------------------------------------------------------
 from app.models import Job
+from app.rag.config import UPLOAD_DIR as _DEFAULT_UPLOAD_DIR
 
 router = APIRouter(prefix="/contribute", tags=["contribute"])
 
-# Folder where uploaded files are saved before the worker processes them
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+# Folder where uploaded files are saved before the worker processes them.
+# Absolute (backend/data/uploads) so the API and the worker agree on it
+# no matter which folder each one was started from.
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(_DEFAULT_UPLOAD_DIR))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
