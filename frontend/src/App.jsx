@@ -9,6 +9,7 @@
 import Ask from './pages/Ask'
 import Contribute from './pages/Contribute'
 import Feed from './pages/Feed'
+import DatabloomPanel from './components/DatabloomPanel'
 
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './AuthContext'
@@ -49,6 +50,14 @@ export default function App() {
             <Route path="/" element={<Ask />} />
             <Route path="/contribute" element={<Contribute />} />
             <Route path="/feed" element={<Feed />} />
+            <Route
+              path="/databloom"
+              element={
+                <main className="mx-auto max-w-[1240px] px-6 pb-14 pt-10">
+                  <DatabloomPanel />
+                </main>
+              }
+            />
             <Route
               path="/admin"
               element={

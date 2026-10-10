@@ -9,7 +9,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .database import Base, engine  # noqa: E402
-from .routes import auth_routes, example_protected  # noqa: E402
+from .routes import auth_routes, databloom, example_protected  # noqa: E402
 
 Base.metadata.create_all(engine)
 
@@ -32,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_routes.router)
+app.include_router(databloom.router)  # /databloom/files, /databloom/chunks, POST /databloom
 app.include_router(example_protected.router)  # replace with your real routers
 
 
