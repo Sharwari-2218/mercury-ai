@@ -5,7 +5,8 @@ from langchain_core.documents import Document
 
 from .config import get_llm
 from .ingest import load_chunks
-from .search import _lines, hybrid_search, matches
+from .search import _lines, hybrid_search, matches, tokenize
+from .sections import sections_named_in
 
 # ---------- Prompts ----------
 
@@ -27,6 +28,9 @@ How to write the answer:
 - Keep it short: under 150 words.
 - Start with a one or two sentence direct answer.
 - Then at most 3-5 short bullet points if they add something.
+- Exception: if the question asks to list things (experiments, steps, modules,
+  requirements...), list EVERY item in the context, one bullet each, in order,
+  even if that is more than 5 items or over 150 words.
 - Plain, simple language. No long introductions, no repeating the question.
 - No tables. No headings unless the answer has clearly separate parts.""",
     "detailed": """
@@ -36,6 +40,7 @@ How to write the answer:
 - Cover EVERY important point in the context: purpose, features, how it works,
   installation/usage, examples, configuration, etc. Don't skip sections.
 - Use bullet points and simple language; explain technical terms briefly.
+- If the question asks to list things, include EVERY item in the context, in order.
 - End with a short "In short" line summarising the main idea.""",
 }
 
@@ -117,6 +122,50 @@ def pinned_file_chunks(question: str, collection_name: str, where: dict | None, 
             out.append(Document(page_content=c["text"], metadata=dict(c["metadata"])))
     return out
 
+# ---------- Section-aware retrieval (Docsense) ----------
+# If the question names a section of an uploaded document ("experiments for the
+# computer networks lab"), read that section in order, the same way a named file
+# is read above. Search alone tends to return the section's intro (which repeats
+# its name) and miss the list further down that the question is actually about.
+
+MAX_PINNED_SECTION_CHUNKS = {"short": 8, "detailed": 14}
+
+
+def _most_relevant(chunks: list[dict], queries: list[str], n: int) -> list[dict]:
+    """Pick the n chunks of a long section that best match the question, kept in order."""
+    from rank_bm25 import BM25Okapi
+
+    index = BM25Okapi([tokenize(c["text"]) for c in chunks])
+    scores = index.get_scores(tokenize(" ".join(queries)))
+    best = sorted(range(len(chunks)), key=lambda i: -scores[i])[:n]
+    return [chunks[i] for i in sorted(best)]
+
+
+def pinned_section_chunks(
+    question: str, queries: list[str], collection_name: str, where: dict | None, limit: int
+) -> list[Document]:
+    chunks = [
+        c for c in load_chunks(collection_name)
+        if c["metadata"].get("section") and matches(c["metadata"], where)
+    ]
+    if not chunks:
+        return []
+    named = sections_named_in(question, {c["metadata"]["section"] for c in chunks})
+    if not named:
+        return []
+    per_section = max(1, limit // len(named))
+    out = []
+    for title in named:
+        section = sorted(
+            (c for c in chunks if c["metadata"]["section"] == title),
+            key=lambda c: (str(c["metadata"].get("doc_id", "")), c["metadata"].get("chunk_index", 0)),
+        )
+        if len(section) > per_section:
+            section = _most_relevant(section, queries, per_section)
+        out += [Document(page_content=c["text"], metadata=dict(c["metadata"])) for c in section]
+    return out
+
+
 SUGGEST_PROMPT = """Given this question and answer, suggest 3 short follow-up questions the
 user might ask next (under 10 words each). One per line, no numbering, no extra text.
 
@@ -147,6 +196,7 @@ def to_sources(docs: list[Document]) -> list[dict]:
             "path": d.metadata.get("path"),
             "title": d.metadata.get("title"),
             "page": d.metadata.get("page"),
+            "section": d.metadata.get("section"),
             "type": d.metadata.get("type"),
             "chunk_id": d.metadata.get("chunk_id"),
             "score": d.metadata.get("rrf_score"),
@@ -180,8 +230,12 @@ def answer_question(
 
     searched, queries = hybrid_search(question, collection_name, where, top_n=SEARCH_TOP_N[detail])
     pinned = pinned_file_chunks(question, collection_name, where, MAX_PINNED_CHUNKS[detail])
+    if not pinned:
+        pinned = pinned_section_chunks(
+            question, queries, collection_name, where, MAX_PINNED_SECTION_CHUNKS[detail]
+        )
 
-    # Whole named file first (in order), then other search hits, no duplicates.
+    # Whole named file (or section) first (in order), then other search hits, no duplicates.
     seen = {d.metadata.get("chunk_id") for d in pinned}
     docs = pinned + [d for d in searched if d.metadata.get("chunk_id") not in seen]
     if pinned:

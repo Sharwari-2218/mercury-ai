@@ -1,5 +1,6 @@
 """Ingestion pipeline: load -> split -> embed into Chroma + save raw chunks for BM25."""
 import json
+import re
 import threading
 import uuid
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Iterable
 from langchain_core.documents import Document
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
+from .sections import section_documents
 from .config import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
@@ -33,21 +35,48 @@ def load_file(path: str | Path) -> list[Document]:
 
         docs = PyPDFLoader(str(path)).load()  # one Document per page, has `page` meta
     elif ext == ".docx":
-        import docx  # python-docx
-
-        d = docx.Document(str(path))
-        parts = [p.text for p in d.paragraphs if p.text.strip()]
-        # Tables often hold the important stuff in company docs.
-        for table in d.tables:
-            for row in table.rows:
-                parts.append(" | ".join(c.text.strip() for c in row.cells))
-        docs = [Document(page_content="\n".join(parts))]
+        docs = [Document(page_content=_docx_text(path))]
     elif ext in (".txt", ".md"):
         docs = [Document(page_content=path.read_text(encoding="utf-8", errors="ignore"))]
     else:
         raise ValueError(f"Unsupported file type: {ext}")
 
     return [d for d in docs if d.page_content.strip()]
+
+
+def _docx_text(path: Path) -> str:
+    """Paragraphs and tables in document order (tables often hold the important
+    stuff, and must stay next to the heading they belong to). Word headings become
+    markdown "#" lines so the section splitter can find them."""
+    import docx  # python-docx
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    d = docx.Document(str(path))
+    parts = []
+    for el in d.element.body.iterchildren():
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            p = Paragraph(el, d)
+            text = p.text.strip()
+            if not text:
+                continue
+            style = (p.style.name if p.style is not None else "") or ""
+            m = re.match(r"Heading (\d)", style)
+            if m:
+                text = "#" * int(m.group(1)) + " " + text
+            elif style == "Title":
+                text = "# " + text
+            parts.append(text)
+        elif tag == "tbl":
+            for row in Table(el, d).rows:
+                cells = []
+                for c in row.cells:  # merged cells repeat; keep each once
+                    t = c.text.strip()
+                    if not cells or cells[-1] != t:
+                        cells.append(t)
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
 
 
 # ---------- Splitting ----------
@@ -120,6 +149,7 @@ def ingest(
     metadata: dict,
     language: Language | None = None,
     path_header: bool = False,
+    sectioned: bool = False,
 ) -> dict:
     """Split, tag, embed and store documents.
 
@@ -129,13 +159,19 @@ def ingest(
 
     path_header=True (GitTalk) writes "# File: <path>" at the top of EVERY chunk,
     so both BM25 and the embeddings know which file a chunk came from.
+
+    sectioned=True (Docsense uploads) splits along the document's headings and
+    writes "Section: <heading>" at the top of every chunk; see sections.py.
     """
     missing = [k for k in REQUIRED_META if k not in metadata]
     if missing:
         raise ValueError(f"metadata missing keys: {missing}")
 
     docs = list(docs)
-    chunks = split_documents(docs, language)
+    if sectioned:
+        chunks = section_documents(docs, CHUNK_SIZE, CHUNK_OVERLAP)
+    else:
+        chunks = split_documents(docs, language)
     if not chunks:
         return {"collection": collection_name, "chunks": 0}
 
@@ -172,4 +208,4 @@ def ingest(
 
 def ingest_file(path: str | Path, collection_name: str, metadata: dict) -> dict:
     """Convenience wrapper used by Docsense and the Contribute worker."""
-    return ingest(load_file(path), collection_name, metadata)
+    return ingest(load_file(path), collection_name, metadata, sectioned=True)
