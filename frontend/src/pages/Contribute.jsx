@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-
-// Use the same base URL your other API calls use
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
-// Change "token" if your login saves the token under a different key
-function authHeaders() {
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { api } from "../api";
+import { useAuth } from "../AuthContext";
 
 /* ---------- Icons (inline, no extra packages) ---------- */
 const UploadIcon = ({ className = "w-5 h-5" }) => (
@@ -55,7 +48,6 @@ export default function Contribute() {
   const [file, setFile] = useState(null);
   const [url, setUrl] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [user, setUser] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [currentJob, setCurrentJob] = useState(null);
@@ -63,21 +55,14 @@ export default function Contribute() {
   const fileInputRef = useRef(null);
 
   // Logged-in user (for the department shown on the page)
-  useEffect(() => {
-    fetch(`${API_URL}/auth/me`, { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setUser)
-      .catch(() => {});
-  }, []);
+  const { user } = useAuth();
 
   // Recent jobs list, refreshed every 3 seconds
   useEffect(() => {
     let alive = true;
     async function load() {
       try {
-        const r = await fetch(`${API_URL}/contribute/jobs`, { headers: authHeaders() });
-        if (!r.ok) return;
-        const data = await r.json();
+        const data = await api("/contribute/jobs");
         if (!alive) return;
         setJobs(data);
         if (currentJob) {
@@ -119,15 +104,8 @@ export default function Contribute() {
 
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_URL}/contribute`, {
-        method: "POST",
-        headers: authHeaders(), // no Content-Type: the browser sets it for FormData
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof data.detail === "string" ? data.detail : "Upload failed");
-      }
+      // api() adds the login token; the browser sets Content-Type for FormData
+      const data = await api("/contribute", { method: "POST", body: fd });
       setCurrentJob(data);
       setJobs((prev) => [data, ...prev]);
       setFile(null);
