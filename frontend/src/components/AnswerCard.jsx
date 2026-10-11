@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../lib/api';
 import { modeOf } from '../lib/modes';
-import { useUser } from '../lib/user';
+import { useAuth } from '../AuthContext';
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ListIcon, Logo } from './Icons';
 
 const sectionLabel = 'text-xs font-bold uppercase tracking-[0.08em] text-muted';
@@ -23,7 +23,7 @@ function Header({ turn }) {
 }
 
 export default function AnswerCard({ turn }) {
-  const { user } = useUser();
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [posted, setPosted] = useState('idle'); // idle | saving | done | error
   const [rating, setRating] = useState(0);

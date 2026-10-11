@@ -9,16 +9,17 @@ from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Queue
 
-# ---- CHANGE THESE TWO IMPORTS to match your project ----
-from app.database import SessionLocal        # where SessionLocal is created
-from app.auth import get_current_user        # the same dependency /auth/me uses
-# ---------------------------------------------------------
+from app.database import SessionLocal
+from app.auth import allowed_types, get_current_user
 from app.models import Job
+from app.rag.config import UPLOAD_DIR as _DEFAULT_UPLOAD_DIR
 
 router = APIRouter(prefix="/contribute", tags=["contribute"])
 
-# Folder where uploaded files are saved before the worker processes them
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+# Folder where uploaded files are saved before the worker processes them.
+# Absolute (backend/data/uploads) so the API and the worker agree on it
+# no matter which folder each one was started from.
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(_DEFAULT_UPLOAD_DIR))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
@@ -68,8 +69,19 @@ async def contribute(
     current_user=Depends(get_current_user),
 ):
     # Who is uploading comes from the login, not from the form
-    uploaded_by = _user_field(current_user, "name") or _user_field(current_user, "email", "unknown")
+    uploaded_by = _user_field(current_user, "email", "unknown")
     department = _user_field(current_user, "department", "general")
+
+    # Each kind of upload needs the matching permission (same rule as the feature itself)
+    needed = {"file": "doc", "repo": "code", "wiki": "wiki"}.get(type)
+    if needed:
+        db = SessionLocal()
+        try:
+            permitted = allowed_types(current_user, db)
+        finally:
+            db.close()
+        if needed not in permitted:
+            raise HTTPException(403, f"Your department can't add '{needed}' content")
 
     job_id = str(uuid.uuid4())
 
@@ -152,12 +164,21 @@ async def contribute(
     return {"job_id": job_id, "status": "queued", "type": type, "source": source}
 
 
+def _my_uploader_ids(user) -> list[str]:
+    # Older jobs stored the name, newer ones the email.
+    return [v for v in (_user_field(user, "email"), _user_field(user, "name")) if v]
+
+
+def _owns(user, job: Job) -> bool:
+    return _user_field(user, "role") == "admin" or job.uploaded_by in _my_uploader_ids(user)
+
+
 @router.get("/status/{job_id}")
 def contribute_status(job_id: str, current_user=Depends(get_current_user)):
     db = SessionLocal()
     try:
         job = db.get(Job, job_id)
-        if job is None:
+        if job is None or not _owns(current_user, job):
             raise HTTPException(404, "Job not found.")
         return _job_to_dict(job)
     finally:
@@ -166,10 +187,13 @@ def contribute_status(job_id: str, current_user=Depends(get_current_user)):
 
 @router.get("/jobs")
 def recent_jobs(limit: int = 20, current_user=Depends(get_current_user)):
-    """Recent contributions, newest first (for the list under the upload box)."""
+    """Your recent contributions (admins: everyone's), newest first."""
     db = SessionLocal()
     try:
-        jobs = db.query(Job).order_by(Job.created_at.desc()).limit(min(limit, 100)).all()
+        q = db.query(Job)
+        if _user_field(current_user, "role") != "admin":
+            q = q.filter(Job.uploaded_by.in_(_my_uploader_ids(current_user)))
+        jobs = q.order_by(Job.created_at.desc()).limit(min(limit, 100)).all()
         return [_job_to_dict(j) for j in jobs]
     finally:
         db.close()

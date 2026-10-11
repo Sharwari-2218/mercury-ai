@@ -1,4 +1,4 @@
-import Navbar from './Navbar';
+import Navbar from './NavBar';
 
 // Page frame: blue ombre header (navbar + page intro), then content that overlaps it by 64px.
 export default function Shell({ eyebrow, title, description, headerExtra, headerAside, children }) {

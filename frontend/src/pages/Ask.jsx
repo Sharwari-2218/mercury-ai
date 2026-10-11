@@ -6,6 +6,7 @@ import AnswerCard from '../components/AnswerCard';
 import { ArrowUpIcon, ChevronDownIcon } from '../components/Icons';
 import { api, normalizeSource } from '../lib/api';
 import { MODES, modeOf } from '../lib/modes';
+import { useAuth } from '../AuthContext';
 
 const chip =
   'min-h-11 cursor-pointer rounded-full border border-line-strong bg-white px-4 text-sm text-ink hover:border-teal hover:text-teal';
@@ -41,7 +42,11 @@ function ScopePicker({ mode, scopes, scope, setScope }) {
 }
 
 export default function Ask() {
-  const [modeValue, setModeValue] = useState('gittalk');
+  const { can } = useAuth();
+  // Only the modes this user's department may use ("All" is always there).
+  const modes = MODES.filter((m) => !m.needs || can(m.needs));
+  const [chosenMode, setModeValue] = useState('gittalk');
+  const modeValue = modes.some((m) => m.value === chosenMode) ? chosenMode : modes[0].value;
   const [scopes, setScopes] = useState([]);
   const [scope, setScope] = useState('');
   const [turns, setTurns] = useState([]);
@@ -126,7 +131,7 @@ export default function Ask() {
           <div className="mt-2">
             <Segmented
               label="Search mode"
-              options={MODES.map((m) => ({ value: m.value, label: m.label }))}
+              options={modes.map((m) => ({ value: m.value, label: m.label }))}
               value={modeValue}
               onChange={setModeValue}
             />

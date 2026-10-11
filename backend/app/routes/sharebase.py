@@ -16,10 +16,15 @@ from urllib.parse import urlsplit, urlunsplit
 
 os.environ.setdefault("USER_AGENT", "MercuryAI/0.1 (company knowledge assistant)")
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.documents import Document
 from langchain_text_splitters import Language
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.auth import ingest_department, require_type, scope_filter, visible_departments
+from app.database import get_db
+from app.models import User
 
 from app.rag import answer_question, delete_where, ingest
 from app.rag.config import DATA_DIR, DEFAULT_COLLECTION
@@ -183,47 +188,56 @@ def add_page(url: str, department: str = "general", uploaded_by: str = "anonymou
 
 class AddRequest(BaseModel):
     url: str
-    department: str = "general"
-    uploaded_by: str = "anonymous"
+    department: str | None = None   # admins only: another department, or "all"
 
 
 @router.post("/add")
-def add(req: AddRequest):  # plain def: fetching can be slow, so run it in a thread
-    return add_page(req.url, req.department, req.uploaded_by)
+def add(req: AddRequest, user: User = Depends(require_type("wiki"))):
+    # plain def: fetching can be slow, so run it in a thread
+    return add_page(req.url, ingest_department(user, req.department), user.email)
 
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=2000)
     url: str | None = None          # ask about one page only
     department: str | None = None
     detail: Literal["auto", "short", "detailed"] = "auto"
 
 
+def _can_see_page(user: User, entry: dict) -> bool:
+    depts = visible_departments(user)
+    return depts is None or entry.get("department") in depts
+
+
 @router.post("/ask")
-def ask(req: AskRequest):
-    where = {"type": "wiki"}
+def ask(req: AskRequest, user: User = Depends(require_type("wiki")), db: Session = Depends(get_db)):
+    wiki_id = None
     if req.url:
-        wid = wiki_id_for(req.url)
-        if wid not in _load_registry():
+        wiki_id = wiki_id_for(req.url)
+        entry = _load_registry().get(wiki_id)
+        if entry is None or not _can_see_page(user, entry):
             raise HTTPException(404, "This page hasn't been added yet. Call /sharebase/add first.")
-        where["wiki_id"] = wid
-    if req.department:
-        where["department"] = req.department
+    where = scope_filter(user, db, type="wiki", wiki_id=wiki_id, department=req.department)
     return answer_question(req.question, DEFAULT_COLLECTION, where, detail=req.detail)
 
 
 @router.get("/pages")
-def pages():
-    return sorted(_load_registry().values(), key=lambda p: p["added_at"], reverse=True)
+def pages(user: User = Depends(require_type("wiki"))):
+    visible = [p for p in _load_registry().values() if _can_see_page(user, p)]
+    return sorted(visible, key=lambda p: p["added_at"], reverse=True)
 
 
 @router.delete("/pages/{wiki_id}")
-def delete_page(wiki_id: str):
+def delete_page(wiki_id: str, user: User = Depends(require_type("wiki"))):
+    """Admins can remove any page; members only pages they added."""
     with _registry_lock:
         reg = _load_registry()
-        if wiki_id not in reg:
+        entry = reg.get(wiki_id)
+        if entry is None or not _can_see_page(user, entry):
             raise HTTPException(404, "Page not found")
+        if user.role != "admin" and entry.get("uploaded_by") not in (user.email, user.name):
+            raise HTTPException(403, "Only the person who added this page or an admin can remove it")
         removed = delete_where(DEFAULT_COLLECTION, "wiki_id", wiki_id)
-        entry = reg.pop(wiki_id)
+        reg.pop(wiki_id)
         _write_registry(reg)
     return {"deleted": entry["url"], "chunks_removed": removed}

@@ -9,6 +9,7 @@
 import Ask from './pages/Ask'
 import Contribute from './pages/Contribute'
 import Feed from './pages/Feed'
+import Databloom from './components/Databloom'
 
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './AuthContext'
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/" element={<Ask />} />
             <Route path="/contribute" element={<Contribute />} />
             <Route path="/feed" element={<Feed />} />
+            <Route path="/databloom" element={<Databloom />} />
             <Route
               path="/admin"
               element={

@@ -10,3 +10,11 @@ chroma_db/
 *.sqlite3
 node_modules/
 frontend/dist/
+data/
+**/data/
+uploads/
+**/uploads/
+*.db-shm
+*.db-wal
+data/
+**/data/

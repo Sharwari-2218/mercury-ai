@@ -1,23 +1,12 @@
 // Every backend call lives in this file. If your FastAPI request/response
 // field names differ, change them here and nothing else needs to move.
 
-const BASE = import.meta.env.VITE_API_URL ?? '/api';
+import { api as authFetch } from '../api';
 
-async function request(path, { method = 'GET', body, form } = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: form ?? (body ? JSON.stringify(body) : undefined),
-  });
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`;
-    try {
-      const data = await res.json();
-      if (data?.detail) message = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-    } catch { /* body wasn't JSON */ }
-    throw new Error(message);
-  }
-  return res.status === 204 ? null : res.json();
+// Every request goes through src/api.js, which adds the login token and
+// refreshes it when it expires. Same signature as before, so callers don't change.
+function request(path, { method = 'GET', body, form } = {}) {
+  return authFetch(path, { method, body: form ?? body });
 }
 
 // ---------- Ask ----------
@@ -76,7 +65,7 @@ export const api = {
   // POST /contribute (multipart) -> { job_id, status }
   contribute: ({ kind, file, url, branch, department, uploadedBy }) => {
     const form = new FormData();
-    form.append('kind', kind); // "file" | "repo" | "wiki"
+    form.append('type', kind); // backend field is "type": "file" | "repo" | "wiki"
     if (file) form.append('file', file);
     if (url) form.append('url', url);
     if (branch) form.append('branch', branch);
@@ -89,20 +78,21 @@ export const api = {
 
   // ---------- Databloom ----------
   databloomFiles: async () => {
-    const list = await request('/databloom/files'); // -> [{ name, type, department }] or ["a.pdf"]
-    return list.map((f) => (typeof f === 'string' ? { name: f } : f));
+    const data = await request('/databloom/files'); // -> { files: ["a.pdf", ...] }
+    return (data.files ?? []).map((name) => ({ name }));
   },
-  chunks: (fileName) => request(`/databloom/files/${encodeURIComponent(fileName)}/chunks`), // -> [{ id, text, page? }]
+  // -> { source, count, chunks: [{ chunk_id, index, preview, length, summarized }] }
+  chunks: (fileName) => request(`/databloom/chunks?source=${encodeURIComponent(fileName)}`),
   summarize: async (fileName, chunkId) => {
-    const res = await request('/databloom', { method: 'POST', body: { file: fileName, chunk_id: chunkId } });
-    return typeof res === 'string' ? res : res.summary ?? res.markdown ?? '';
+    const res = await request('/databloom', { method: 'POST', body: { source: fileName, chunk_id: chunkId } });
+    return res.summary ?? '';
   },
 
   // ---------- Feed ----------
   feed: (sort) => request(sort === 'trending' ? '/feed/trending' : '/feed'),
   // value: 1, -1, or 0 to remove your vote
-  vote: (postId, value, userEmail) =>
-    request(`/posts/${postId}/vote`, { method: 'POST', body: { value, user_email: userEmail } }),
+  // You vote as the logged-in user; the backend reads who you are from the login.
+  vote: (postId, value) => request(`/posts/${postId}/vote`, { method: 'POST', body: { value } }),
   createPost: (post) => request('/posts', { method: 'POST', body: post }),
   subscriptions: (email) => request(`/subscriptions?email=${encodeURIComponent(email)}`), // -> ["engineering", ...]
   subscribe: (tag, email) => request('/subscriptions', { method: 'POST', body: { tag, email } }),

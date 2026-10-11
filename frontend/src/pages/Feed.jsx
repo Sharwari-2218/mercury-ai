@@ -3,10 +3,9 @@ import Shell, { card } from '../components/Shell';
 import Segmented from '../components/Segmented';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
 import { api } from '../lib/api';
-import { loadJSON, saveJSON, timeAgo } from '../lib/format';
-import { useUser } from '../lib/user';
+import { timeAgo } from '../lib/format';
+import { useAuth } from '../AuthContext';
 
-const VOTES_KEY = 'mercury.votes';
 const tagChip = 'rounded-full bg-chip px-2.5 py-0.5 font-mono text-xs text-body';
 
 // Accepts the post shape from your API and fills in sensible defaults.
@@ -25,21 +24,22 @@ function normalizePost(p) {
 }
 
 export default function Feed() {
-  const { user } = useUser();
+  const { user } = useAuth();
   const [sort, setSort] = useState('trending');
   const [posts, setPosts] = useState(null);
   const [error, setError] = useState('');
-  const [myVotes, setMyVotes] = useState(() => loadJSON(VOTES_KEY, {}));
+  const [myVotes, setMyVotes] = useState({}); // post id -> 1 | -1 | 0, from the server
   const [subs, setSubs] = useState([]);
   const [expanded, setExpanded] = useState({});
-
-  useEffect(() => saveJSON(VOTES_KEY, myVotes), [myVotes]);
 
   useEffect(() => {
     setPosts(null);
     setError('');
     api.feed(sort)
-      .then((list) => setPosts(list.map(normalizePost)))
+      .then((list) => {
+        setPosts(list.map(normalizePost));
+        setMyVotes(Object.fromEntries(list.map((p) => [p.id, p.my_vote ?? 0])));
+      })
       .catch((e) => { setPosts([]); setError(e.message); });
   }, [sort]);
 
@@ -64,7 +64,7 @@ export default function Feed() {
     };
     apply(delta, next); // optimistic
     try {
-      await api.vote(post.id, next, user?.email ?? null);
+      await api.vote(post.id, next);
     } catch {
       apply(-delta, prev); // undo on failure
     }

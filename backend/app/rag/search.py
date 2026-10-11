@@ -44,8 +44,22 @@ def _get_bm25(collection_name: str):
     return index, chunks
 
 
-def _matches(meta: dict, where: dict | None) -> bool:
-    return not where or all(meta.get(k) == v for k, v in where.items())
+def matches(meta: dict, where: dict | None) -> bool:
+    """Simple filter used everywhere: {"key": value} must be equal, and
+    {"key": [a, b]} means the value must be one of the list (access control)."""
+    if not where:
+        return True
+    for k, v in where.items():
+        got = meta.get(k)
+        if isinstance(v, (list, tuple, set)):
+            if got not in v:
+                return False
+        elif got != v:
+            return False
+    return True
+
+
+_matches = matches  # old name
 
 
 def keyword_search(query: str, collection_name: str, where: dict | None = None, k: int = TOP_K) -> list[Document]:
@@ -71,12 +85,19 @@ def keyword_search(query: str, collection_name: str, where: dict | None = None, 
 
 # ---------- Layer 2: vector (Chroma) ----------
 
-def _chroma_filter(where: dict | None):
+def to_chroma_filter(where: dict | None):
+    """Turn the simple filter into Chroma's syntax: lists become $in, and
+    several keys need an explicit $and."""
     if not where:
         return None
-    if len(where) == 1:
-        return where
-    return {"$and": [{k: v} for k, v in where.items()]}  # Chroma needs explicit $and
+    parts = [
+        {k: {"$in": list(v)}} if isinstance(v, (list, tuple, set)) else {k: v}
+        for k, v in where.items()
+    ]
+    return parts[0] if len(parts) == 1 else {"$and": parts}
+
+
+_chroma_filter = to_chroma_filter  # old name
 
 
 def vector_search(query: str, collection_name: str, where: dict | None = None, k: int = TOP_K) -> list[Document]:

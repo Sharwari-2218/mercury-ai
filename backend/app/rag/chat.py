@@ -5,7 +5,7 @@ from langchain_core.documents import Document
 
 from .config import get_llm
 from .ingest import load_chunks
-from .search import _lines, hybrid_search
+from .search import _lines, hybrid_search, matches
 
 # ---------- Prompts ----------
 
@@ -102,7 +102,7 @@ def _mentioned_paths(question: str, paths: set[str]) -> list[str]:
 def pinned_file_chunks(question: str, collection_name: str, where: dict | None, limit: int) -> list[Document]:
     chunks = [
         c for c in load_chunks(collection_name)
-        if c["metadata"].get("path") and (not where or all(c["metadata"].get(k) == v for k, v in where.items()))
+        if c["metadata"].get("path") and matches(c["metadata"], where)
     ]
     paths = _mentioned_paths(question, {c["metadata"]["path"] for c in chunks})
     out = []
@@ -226,7 +226,7 @@ Text:
 def list_chunks(collection_name: str, where: dict | None = None) -> list[dict]:
     chunks = load_chunks(collection_name)
     if where:
-        chunks = [c for c in chunks if all(c["metadata"].get(k) == v for k, v in where.items())]
+        chunks = [c for c in chunks if matches(c["metadata"], where)]
     return [
         {"id": c["id"], "index": c["metadata"].get("chunk_index"), "preview": c["text"][:200]}
         for c in chunks

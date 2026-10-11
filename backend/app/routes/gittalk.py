@@ -18,10 +18,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.documents import Document
 from langchain_text_splitters import Language
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.auth import ingest_department, require_type, scope_filter, visible_departments
+from app.database import get_db
+from app.models import User
 
 from app.rag import answer_question, collection_exists, ingest, reset_collection
 from app.rag.config import DATA_DIR, safe_collection_name
@@ -233,6 +238,8 @@ def index_repo(url: str, department: str = "engineering", uploaded_by: str = "an
             "repo": f"{owner}/{repo}",
             "url": f"https://github.com/{owner}/{repo}",
             "collection": collection,
+            "department": department,
+            "uploaded_by": uploaded_by,
             "files_indexed": len(files),
             "files_skipped": skipped,
             "chunks": total_chunks,
@@ -250,32 +257,43 @@ def index_repo(url: str, department: str = "engineering", uploaded_by: str = "an
 
 class IndexRequest(BaseModel):
     repo_url: str
-    department: str = "engineering"
-    uploaded_by: str = "anonymous"
+    department: str | None = None   # admins only: another department, or "all"
 
 
 @router.post("/index")
-def index(req: IndexRequest):  # plain def: runs in a thread so slow clones don't freeze the API
-    return index_repo(req.repo_url, req.department, req.uploaded_by)
+def index(req: IndexRequest, user: User = Depends(require_type("code"))):
+    # plain def: runs in a thread so slow clones don't freeze the API
+    return index_repo(req.repo_url, ingest_department(user, req.department), user.email)
 
 
 class AskRequest(BaseModel):
     repo_url: str
-    question: str
+    question: str = Field(min_length=1, max_length=2000)
     detail: Literal["auto", "short", "detailed"] = "auto"
 
 
 @router.post("/ask")
-def ask(req: AskRequest):
+def ask(req: AskRequest, user: User = Depends(require_type("code")), db: Session = Depends(get_db)):
     owner, repo = parse_github_url(req.repo_url)
     collection = repo_collection(owner, repo)
-    if not collection_exists(collection):
+    entry = _load_registry().get(collection)
+    if not collection_exists(collection) or not _can_see_repo(user, entry):
+        # Same message whether it's missing or not yours, so repos can't be probed.
         raise HTTPException(404, f"{owner}/{repo} hasn't been indexed yet. Call /gittalk/index first.")
-    return answer_question(
-        req.question, collection, where={"type": "code"}, mode="code", detail=req.detail
-    )
+    where = scope_filter(user, db, type="code")
+    return answer_question(req.question, collection, where=where, mode="code", detail=req.detail)
+
+
+def _can_see_repo(user: User, entry: dict | None) -> bool:
+    depts = visible_departments(user)
+    if depts is None:  # admin
+        return True
+    # Repos indexed before access control have no registry department; let the
+    # chunk-level filter in /ask decide for those.
+    return entry is None or entry.get("department") in depts
 
 
 @router.get("/repos")
-def repos():
-    return sorted(_load_registry().values(), key=lambda r: r["indexed_at"], reverse=True)
+def repos(user: User = Depends(require_type("code"))):
+    visible = [r for r in _load_registry().values() if _can_see_repo(user, r)]
+    return sorted(visible, key=lambda r: r["indexed_at"], reverse=True)

@@ -133,3 +133,45 @@ def can_see_chunk(user: User, metadata: dict, db: Session) -> bool:
         return True
     return (metadata.get("type") in allowed_types(user, db)
             and metadata.get("department") in (user.department, "all"))
+
+
+# ---------- Filters for the RAG routes ----------
+# Content tagged department "all" is visible to every department.
+PUBLIC_DEPARTMENT = "all"
+
+
+def visible_departments(user: User) -> list[str] | None:
+    """Departments whose content this user may see. None = everything (admins)."""
+    if user.role == "admin":
+        return None
+    return [user.department, PUBLIC_DEPARTMENT]
+
+
+def scope_filter(user: User, db: Session, **fixed) -> dict | None:
+    """The search filter for this user, in the simple format the RAG layer uses
+    ({"key": value} = equal, {"key": [a, b]} = any of). Pass the result as `where`
+    to answer_question / hybrid_search: it's applied to BM25 AND vector results.
+
+    `fixed` adds the feature's own conditions, e.g. type="doc" or source="a.pdf".
+    A department in `fixed` narrows the search only if the user may see it;
+    otherwise it's ignored and the user's normal departments apply.
+    """
+    fixed = {k: v for k, v in fixed.items() if v is not None}
+    if user.role == "admin":
+        return fixed or None
+
+    where = dict(fixed)
+    if "type" not in where:  # routes with a fixed type already passed require_type
+        where["type"] = allowed_types(user, db) or ["__none__"]
+    allowed_depts = visible_departments(user)
+    if where.get("department") not in allowed_depts:
+        where["department"] = allowed_depts
+    return where
+
+
+def ingest_department(user: User, requested: str | None = None) -> str:
+    """Department to tag new content with. Members always use their own;
+    admins may choose another one, or "all" to share it with everyone."""
+    if user.role == "admin" and requested and requested.strip():
+        return requested.strip().lower()
+    return user.department

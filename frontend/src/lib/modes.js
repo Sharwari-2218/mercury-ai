@@ -10,6 +10,7 @@ export const MODES = [
   },
   {
     value: 'gittalk',
+    needs: 'code', // content type the user's department must be allowed (see AuthContext can())
     label: 'GitTalk',
     scopeLabel: 'Repository',
     scopePlaceholder: 'https://github.com/owner/repo',
@@ -20,6 +21,7 @@ export const MODES = [
   },
   {
     value: 'docsense',
+    needs: 'doc',
     label: 'Docsense',
     scopeLabel: 'Document',
     scopePlaceholder: 'file name',
@@ -30,6 +32,7 @@ export const MODES = [
   },
   {
     value: 'sharebase',
+    needs: 'wiki',
     label: 'Sharebase',
     scopeLabel: 'Wiki',
     scopeText: 'All wikis',

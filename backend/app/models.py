@@ -1,8 +1,10 @@
-"""Auth tables. Add these to your existing models.py (your posts, votes and
-subscriptions tables can stay as they are; posts.user_id should point at users.id)."""
+"""Database tables: users and department policies (auth), ingestion jobs,
+and the feed (posts, votes, tag subscriptions)."""
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+)
 
 from .database import Base
 
@@ -65,3 +67,39 @@ class Job(Base):
     department = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
+
+
+# ---------- Feed ----------
+
+class Post(Base):
+    """An answer someone shared from the Ask page."""
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    official_tag = Column(String(50))           # the Ask mode it came from: all, gittalk, ...
+    dept_tag = Column(String(50), index=True)   # the poster's department
+    is_official = Column(Boolean, nullable=False, default=False)  # posted by an admin
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)  # naive UTC
+
+
+class Vote(Base):
+    __tablename__ = "votes"
+    __table_args__ = (UniqueConstraint("user_id", "post_id"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    value = Column(Integer, nullable=False)     # +1 or -1 (a 0 vote deletes the row)
+
+
+class Subscription(Base):
+    """A user follows a tag and gets an email when a post carries it."""
+    __tablename__ = "subscriptions"
+    __table_args__ = (UniqueConstraint("user_id", "tag"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    tag = Column(String(50), nullable=False, index=True)

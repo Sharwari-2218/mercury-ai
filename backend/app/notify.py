@@ -66,3 +66,26 @@ def notify_user_rejected(to: str, name: str) -> None:
         f"Hi {name},\n\nYour access request was not approved. "
         "If you think this is a mistake, please contact your administrator.\n",
     )
+
+
+# ---------- Feed tag alerts ----------
+
+def notify_tag_subscribers(recipients: list[str], tags: list[str], author: str,
+                           question: str, answer: str) -> None:
+    """Runs in a FastAPI BackgroundTask after a post is created, so the request isn't blocked."""
+    if not recipients:
+        return
+    tag_text = ", ".join(f"#{t}" for t in tags)
+    preview = answer.strip()
+    if len(preview) > 600:
+        preview = preview[:600].rsplit(" ", 1)[0] + "…"
+    for to in recipients:
+        send_email(
+            to,
+            f"Mercury AI: new post in {tag_text}",
+            f"{author} posted an answer tagged {tag_text}.\n\n"
+            f"Q: {question.strip()}\n\n{preview}\n\n"
+            f"Read it on the feed: {_app_url()}/feed\n\n"
+            "You get this email because you follow one of these tags. "
+            "Unfollow it on the Feed page to stop these alerts.\n",
+        )
